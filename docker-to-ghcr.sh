@@ -6,15 +6,23 @@
 # Author: Bob Schmitz
 #
 # History:
+#  2023-04-06 - Adding documentation and error checking
 #  2023-04-05 - Check if container image already exists in GHCR using API
 #  2023-04-04 - Initial creation
 ###
 
+# Exit when errors encountered, return status from first pipe failure
 set -eo pipefail
 
 # Execute the cleanup function if user interrupts script (Ctrl+C)
 trap cleanup 2
 
+# Main function
+#
+# Inputs:
+#   $1 - Docker user
+#   $2 - GitHub user
+#   $3 - GitHub API key
 main() {
 	# verify all required arguments are passed on the command line
 	if [ -z "$1" ]; then
@@ -25,12 +33,6 @@ main() {
 		usage 0
 	fi
 	DOCKER_USER=$1
-
-	#if [ -z "$2" ]; then
-	#	prompt error "Docker API key was not passed"
-	#	usage 1
-	#fi
-	#DOCKER_KEY=$2
 
 	if [ -z "$2" ]; then
 		prompt error "GitHub username was not passed"
@@ -63,7 +65,13 @@ main() {
 	cleanup $?
 }
 
-# Print usage message then exit with status code
+# Script usage
+#
+# Inputs:
+#   $1 - exit status
+#
+# Outputs:
+#   Usage message
 usage() {
 	cat <<-USAGE
 	usage: $(basename $0) <Docker username> <GitHub username> <GitHub API key>
@@ -78,6 +86,9 @@ usage() {
 }
 
 # Remove temp files then exit with status code
+#
+# Inputs:
+#   $1 - exit status
 cleanup() {
 	[ -f "$JSON" ] && rm $JSON
 
@@ -86,9 +97,12 @@ cleanup() {
 
 # Colorized prompts
 #
-# Inputs
+# Inputs:
 #   $1 - Status
 #   $2 - Message
+#
+# Output:
+#   Colorful message to stdout
 prompt() {
 	local status=$1
 	local msg="$2"
@@ -113,7 +127,10 @@ prompt() {
 }
 
 # Install dependencies required for script
-# We are assuming a Debian based distro here
+# (assuming a Debian based distro)
+#
+# Return:
+#   0 if successful otherwise 1
 install_dependencies() {
 	if ! which jq > /dev/null; then
 		prompt info 'Installing jq...'
@@ -124,18 +141,16 @@ install_dependencies() {
 	return 0
 }
 
-# Get Docker token to allow for a higher rate limit when pulling info from registry
-get_docker_token() {
-	curl -sS -d '{"username":"'$DOCKER_USER'","password":"'$DOCKER_KEY'"}' "https://hub.docker.com/v2/users/login" > $JSON \
-		|| cleanup 1
-	local token=$(jq -r '.token' $JSON)
-	echo $token
-	[ -n "$token" ] && [ "$token" != 'null' ]
-
-	return $?
-}
-
 # Generate full list of images for Docker user
+#
+# Inputs:
+#   DOCKER_USER - Docker username to parse
+#
+# Output:
+#   FULL_IMAGE_LIST - list of all public Docker hub images with tags
+#
+# Return:
+#   0 if successful otherwise 1
 get_docker_hub_image_list() {
 	# Check if image list exists
 	if [ -s "$FULL_IMAGE_LIST" ]; then
@@ -143,14 +158,8 @@ get_docker_hub_image_list() {
 		return 0
 	fi
 
-	#local token=$(get_docker_token) || return $?
-
 	# docker hub API
 	local hub='https://hub.docker.com/v2/repositories'
-
-	# partial curl command
-	#local _curl="curl -sS -H 'Authorization: JWT $token'"
-	local _curl="curl -sS"
 
 	prompt info "Building full image list for $DOCKER_USER\n---"
 
@@ -158,7 +167,7 @@ get_docker_hub_image_list() {
 	local repos=()
 	local next="$hub/$DOCKER_USER/?page_size=100"
 	while [ "$next" != "null" ]; do
-		$_curl $next > $JSON || return 1
+		curl -sS $next > $JSON || return 1
 		repos+=($(jq -r '.results|.[]|.name' $JSON))
 		next=$(jq -r '.next' $JSON)
 	done
@@ -171,7 +180,7 @@ get_docker_hub_image_list() {
 		local tags=()
 		next="$hub/$DOCKER_USER/$repo/tags/?page_size=100"
 		while [ "$next" != "null" ]; do
-			$_curl $next > $JSON || return 1
+			curl -sS  $next > $JSON || return 1
 			tags+=($(jq -r '.results|.[]|.name' $JSON))
 			next=$(jq -r '.next' $JSON)
 		done
@@ -186,6 +195,13 @@ get_docker_hub_image_list() {
 	return 0
 }
 
+# Check if container image already exists on ghcr
+#
+# Inputs:
+#   $1 - Docker image
+#
+# Return:
+#   0 if successful otherwise 1
 check_if_exists_on_ghcr() {
 	local image=$1
 	local repo=$(echo $image | sed 's|.*/\(.*\):.*|\1|')
@@ -215,6 +231,15 @@ check_if_exists_on_ghcr() {
 	return $?
 }
 
+# GHCR image upload
+#
+# Inputs:
+#   FULL_IMAGE_LIST - List of all Docker container images
+#   GITHUB_USER - GitHub user
+#   GITHUB_KEY - GitHub API key
+#
+# Return:
+#   0 if successful otherwise 1
 ghcr_upload() {
 	local docker_image
 	while read -r docker_image; do
