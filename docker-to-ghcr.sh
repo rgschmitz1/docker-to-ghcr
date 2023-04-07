@@ -14,7 +14,7 @@
 # Exit when errors encountered, return status from first pipe failure
 set -eo pipefail
 
-# Execute the cleanup function if user interrupts script (Ctrl+C)
+# Execute the cleanup function if user interrupts script (Ctrl-C)
 trap cleanup 2
 
 # Main function
@@ -46,7 +46,8 @@ main() {
 	fi
 	GITHUB_KEY=$3
 
-	# build a full image list from docker hub, cache locally incase we want to interrupt script
+	# build a full image list from docker hub,
+	# cache locally in-case we want to interrupt script
 	FULL_IMAGE_LIST=/tmp/${DOCKER_USER}-docker-hub-image-list.txt
 
 	# create temp file to store API JSON output
@@ -130,15 +131,13 @@ prompt() {
 # (assuming a Debian based distro)
 #
 # Return:
-#   0 if successful otherwise 1
+#   0 if successful, otherwise error status
 install_dependencies() {
-	if ! which jq > /dev/null; then
-		prompt info 'Installing jq...'
-		sudo apt update && sudo apt install -y jq
-		return $?
-	fi
+	which jq > /dev/null && return 0
+	prompt info 'Installing jq...'
+	sudo apt update && sudo apt install -y jq
 
-	return 0
+	return $?
 }
 
 # Generate full list of images for Docker user
@@ -150,7 +149,7 @@ install_dependencies() {
 #   FULL_IMAGE_LIST - list of all public Docker hub images with tags
 #
 # Return:
-#   0 if successful otherwise 1
+#   0 if successful, otherwise error status
 get_docker_hub_image_list() {
 	# Check if image list exists
 	if [ -s "$FULL_IMAGE_LIST" ]; then
@@ -180,7 +179,7 @@ get_docker_hub_image_list() {
 		local tags=()
 		next="$hub/$DOCKER_USER/$repo/tags/?page_size=100"
 		while [ "$next" != "null" ]; do
-			curl -sS  $next > $JSON || return 1
+			curl -sS $next > $JSON || return 1
 			tags+=($(jq -r '.results|.[]|.name' $JSON))
 			next=$(jq -r '.next' $JSON)
 		done
@@ -201,13 +200,13 @@ get_docker_hub_image_list() {
 #   $1 - Docker image
 #
 # Return:
-#   0 if successful otherwise 1
+#   0 if successful, otherwise error status
 check_if_exists_on_ghcr() {
 	local image=$1
 	local repo=$(echo $image | sed 's|.*/\(.*\):.*|\1|')
 	local tag=$(echo $image | sed 's|.*:\(.*\)|\1|')
 	image=$(echo $image | sed 's|:.*||')
-	local schema="application/vnd.docker.distribution.manifest.v2+json"
+	local schema='application/vnd.docker.distribution.manifest.v2+json'
 
 	curl -sS -u $GITHUB_USER:$GITHUB_KEY "https://ghcr.io/token?scope=repository:$repo:pull" > $JSON \
 		|| cleanup $?
@@ -239,7 +238,7 @@ check_if_exists_on_ghcr() {
 #   GITHUB_KEY - GitHub API key
 #
 # Return:
-#   0 if successful otherwise 1
+#   0 if successful, otherwise error status
 ghcr_upload() {
 	local docker_image
 	while read -r docker_image; do
