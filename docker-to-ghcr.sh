@@ -135,8 +135,10 @@ verify_pass_setup() {
 	# Check if github/GITHUB_USER is valid
 	if ! pass github/$GITHUB_USER > /dev/null; then
 		prompt info "Enter ghcr.io $GITHUB_USER API key"
-		pass insert github/$GITHUB_USER
+		pass insert github/$GITHUB_USER || cleanup 1
 	fi
+
+	GITHUB_KEY=$(pass github/$GITHUB_USER) || cleanup 1
 }
 
 
@@ -209,7 +211,7 @@ check_if_exists_on_ghcr() {
 	image=$(echo $image | sed 's|:.*||')
 	local schema='application/vnd.docker.distribution.manifest.v2+json'
 
-	curl -sS -u $GITHUB_USER:$(pass github/$GITHUB_USER) "https://ghcr.io/token?scope=repository:$repo:pull" > $JSON \
+	curl -sS -u $GITHUB_USER:$GITHUB_KEY "https://ghcr.io/token?scope=repository:$repo:pull" > $JSON \
 		|| cleanup $?
 	local github_token=$(jq -r '.token' $JSON 2> /dev/null) || return $?
 
@@ -262,7 +264,7 @@ ghcr_upload() {
 		docker tag $docker_image $ghcr_image
 
 		# login to ghcr
-		echo $(pass github/$GITHUB_USER) | docker login ghcr.io -u $GITHUB_USER --password-stdin || return 1
+		echo $GITHUB_KEY | docker login ghcr.io -u $GITHUB_USER --password-stdin || return 1
 
 		# push image to ghcr.io
 		if ! docker push $ghcr_image; then
