@@ -44,12 +44,6 @@ main() {
 	fi
 	GITHUB_USER=$2
 
-	if [ -z "$3" ]; then
-		prompt error "Docker username was not passed"
-		usage 1
-	fi
-	DOCKER_USER=$3
-
 	# build a full image list from docker hub,
 	# cache locally in-case we want to interrupt script
 	FULL_IMAGE_LIST=/tmp/${DOCKER_NAMESPACE}-docker-hub-image-list.txt
@@ -143,12 +137,6 @@ verify_pass_setup() {
 		prompt info "Enter ghcr.io $GITHUB_USER API key"
 		pass insert github/$GITHUB_USER
 	fi
-
-	prompt info "Enter ghcr.io $GITHUB_USER API key"
-	docker login ghcr.io -u $GITHUB_USER
-
-	prompt info "Enter hub.docker.com $DOCKER_USER API key"
-	docker login -u $DOCKER_USER
 }
 
 
@@ -263,7 +251,7 @@ ghcr_upload() {
 			continue
 		fi
 
-		docker login -u $DOCKER_USER || return 1
+		docker login || return 1
 		if ! docker pull $docker_image; then
 			prompt error "Encountered an issue pulling $docker_image"
 			return 1
@@ -274,7 +262,7 @@ ghcr_upload() {
 		docker tag $docker_image $ghcr_image
 
 		# login to ghcr
-		docker login ghcr.io -u $GITHUB_USER || return 1
+		docker login ghcr.io -u $GITHUB_USER -p $(pass github/$GITHUB_USER) || return 1
 
 		# push image to ghcr.io
 		if ! docker push $ghcr_image; then

@@ -13,8 +13,8 @@ gpg_setup() {
 	fi
 
 	# Verify a gpg key has been initialized
-	local key='gpg --list-key "$USERNAME" 2> /dev/null | awk "/^pub/{getline;print}" | xargs'
-	if ! gpg --list-key "$USERNAME" &> /dev/null; then
+	local key='gpg2 --list-key "$USERNAME" 2> /dev/null | awk "/^pub/{getline;print}" | xargs'
+	if ! gpg2 --list-key "$USERNAME" &> /dev/null; then
 		local passphrase
 		while [ -z "$passphrase" ]; do
 			read -rsp "Enter a passphrase: " passphrase
@@ -23,19 +23,16 @@ gpg_setup() {
 			echo
 			[ "$passphrase" != "$REPLY" ] && unset passphrase
 		done
-		gpg --batch --passphrase "$passphrase" --quick-gen-key \
+		gpg2 --batch --passphrase "$passphrase" --quick-gen-key \
 			"$USERNAME <$EMAIL>" rsa4096 default 0 && key=$(eval $key)
 		if [ -z "$key" ]; then
-			echo "ERROR: gpg key is empty, check setup and try again."
+			echo "ERROR: gpg2 key is empty, check setup and try again."
 			exit 1
 		fi
-		gpg --batch --passphrase "$passphrase" --quick-add-key $key rsa4096 default 0
+		gpg2 --batch --passphrase "$passphrase" --quick-add-key $key rsa4096 default 0
 	else
 		key=$(eval $key)
 	fi
-
-	# Initalize pass using gpg key
-	pass init $key
 }
 
 
@@ -46,9 +43,19 @@ if ! which jq > /dev/null; then
 	sudo apt update && sudo apt install -y jq || exit 1
 fi
 
+if ! which gpg2 > /dev/null; then
+	echo 'Installing gpg2...'
+	sudo apt update && sudo apt install -y gnupg2 || exit 1
+fi
+
+gpg_setup
+
 if ! which pass > /dev/null; then
 	echo 'Installing pass...'
 	sudo apt update && sudo apt install -y pass || exit 1
+
+	# Initalize pass using gpg key
+	pass init $key
 fi
 
 if ! which docker > /dev/null; then
@@ -88,5 +95,3 @@ if ! which docker-credential-pass > /dev/null; then
 	sudo chmod +x /usr/local/bin/docker-credential-pass || exit $?
 	jq -n '{"credsStore": "pass"}' > ~/.docker/config.json || exit $?
 fi
-
-gpg_setup
