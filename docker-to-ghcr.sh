@@ -1,6 +1,5 @@
 #!/bin/bash
 
-###
 # Backup from Docker container registry to GitHub container registry
 #
 # Author: Bob Schmitz
@@ -9,7 +8,7 @@
 #  2023-04-06 - Adding documentation and error checking
 #  2023-04-05 - Check if container image already exists in GHCR using API
 #  2023-04-04 - Initial creation
-###
+
 
 # Exit when errors encountered, return status from first pipe failure
 set -eo pipefail
@@ -17,22 +16,27 @@ set -eo pipefail
 # Execute the cleanup function if user interrupts script (Ctrl-C)
 trap cleanup 2
 
+
+# Install and setup dependencies
+./install-dependencies.sh || exit 1
+
+
 # Main function
 #
 # Inputs:
-#   $1 - Docker user
+#   $1 - Docker namespace
 #   $2 - GitHub user
 #   $3 - GitHub API key
 main() {
 	# verify all required arguments are passed on the command line
 	if [ -z "$1" ]; then
-		prompt error "Docker username was not passed"
+		prompt error "Docker namespace was not passed"
 		usage 1
 	elif [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
 		# allow -h|--help options to print usage without error
 		usage 0
 	fi
-	DOCKER_USER=$1
+	DOCKER_NAMESPACE=$1
 
 	if [ -z "$2" ]; then
 		prompt error "GitHub username was not passed"
@@ -41,22 +45,22 @@ main() {
 	GITHUB_USER=$2
 
 	if [ -z "$3" ]; then
-		prompt error "GitHub API key was not passed"
+		prompt error "Docker username was not passed"
 		usage 1
 	fi
-	GITHUB_KEY=$3
+	DOCKER_USER=$3
 
 	# build a full image list from docker hub,
 	# cache locally in-case we want to interrupt script
-	FULL_IMAGE_LIST=/tmp/${DOCKER_USER}-docker-hub-image-list.txt
+	FULL_IMAGE_LIST=/tmp/${DOCKER_NAMESPACE}-docker-hub-image-list.txt
 
 	# create temp file to store API JSON output
 	JSON=$(mktemp)
 
-	install_dependencies || cleanup 1
+	verify_pass_setup
 
 	if ! get_docker_hub_image_list; then
-		prompt error "Encountered an issue generating container image list for $DOCKER_USER"
+		prompt error "Encountered an issue generating container image list for $DOCKER_NAMESPACE"
 		rm -f $FULL_IMAGE_LIST
 		cleanup 1
 	fi
@@ -65,6 +69,7 @@ main() {
 
 	cleanup $?
 }
+
 
 # Script usage
 #
@@ -75,16 +80,18 @@ main() {
 #   Usage message
 usage() {
 	cat <<-USAGE
-	usage: $(basename $0) <Docker username> <GitHub username> <GitHub API key>
+	usage: $(basename $0) <Docker namespace> <GitHub username> <Docker username>
 
 	inputs:
-	  Docker username - Source to generate container image list
-	  GitHub username - Destination account to push container images
-	  GitHub API key  - Authenticate user to push container images
+	  Docker namespace - Source to generate container image list
+	  GitHub username  - GitHub account to push container images
+	  Docker username  - Docker account login name
+                         (to increase rate-limit on pull request)
 	USAGE
 
 	exit $1
 }
+
 
 # Remove temp files then exit with status code
 #
@@ -95,6 +102,7 @@ cleanup() {
 
 	exit $1
 }
+
 
 # Colorized prompts
 #
@@ -127,23 +135,27 @@ prompt() {
 	esac
 }
 
-# Install dependencies required for script
-# (assuming a Debian based distro)
-#
-# Return:
-#   0 if successful, otherwise error status
-install_dependencies() {
-	which jq > /dev/null && return 0
-	prompt info 'Installing jq...'
-	sudo apt update && sudo apt install -y jq
 
-	return $?
+# Check/Initialize pass store
+verify_pass_setup() {
+	# Check if github/GITHUB_USER is valid
+	if ! pass github/$GITHUB_USER > /dev/null; then
+		prompt info "enter $GITHUB_USER API key"
+		pass insert github/$GITHUB_USER
+	fi
+
+	prompt info "enter $GITHUB_USER API key"
+	docker login ghcr.io -u $GITHUB_USER
+
+	prompt info "enter $DOCKER_USER API key"
+	docker login -u $DOCKER_USER
 }
+
 
 # Generate full list of images for Docker user
 #
 # Inputs:
-#   DOCKER_USER - Docker username to parse
+#   DOCKER_NAMESPACE - Docker namespace to pull image list
 #
 # Output:
 #   FULL_IMAGE_LIST - list of all public Docker hub images with tags
@@ -160,11 +172,11 @@ get_docker_hub_image_list() {
 	# docker hub API
 	local hub='https://hub.docker.com/v2/repositories'
 
-	prompt info "Building full image list for $DOCKER_USER\n---"
+	prompt info "Building full image list for $DOCKER_NAMESPACE\n---"
 
 	# get list of repos for that user account
 	local repos=()
-	local next="$hub/$DOCKER_USER/?page_size=100"
+	local next="$hub/$DOCKER_NAMESPACE/?page_size=100"
 	while [ "$next" != "null" ]; do
 		curl -sS $next > $JSON || return 1
 		repos+=($(jq -r '.results|.[]|.name' $JSON))
@@ -177,7 +189,7 @@ get_docker_hub_image_list() {
 	for repo in ${repos[@]}; do
 		# get tags for repo
 		local tags=()
-		next="$hub/$DOCKER_USER/$repo/tags/?page_size=100"
+		next="$hub/$DOCKER_NAMESPACE/$repo/tags/?page_size=100"
 		while [ "$next" != "null" ]; do
 			curl -sS $next > $JSON || return 1
 			tags+=($(jq -r '.results|.[]|.name' $JSON))
@@ -187,12 +199,13 @@ get_docker_hub_image_list() {
 		# build a list of images from tags
 		for tag in ${tags[@]}; do
 			# add each tag to list
-			echo $DOCKER_USER/$repo:$tag | tee -a $FULL_IMAGE_LIST
+			echo $DOCKER_NAMESPACE/$repo:$tag | tee -a $FULL_IMAGE_LIST
 		done
 	done
 
 	return 0
 }
+
 
 # Check if container image already exists on ghcr
 #
@@ -208,7 +221,7 @@ check_if_exists_on_ghcr() {
 	image=$(echo $image | sed 's|:.*||')
 	local schema='application/vnd.docker.distribution.manifest.v2+json'
 
-	curl -sS -u $GITHUB_USER:$GITHUB_KEY "https://ghcr.io/token?scope=repository:$repo:pull" > $JSON \
+	curl -sS -u $GITHUB_USER:$(pass github/$GITHUB_USER) "https://ghcr.io/token?scope=repository:$repo:pull" > $JSON \
 		|| cleanup $?
 	local github_token=$(jq -r '.token' $JSON 2> /dev/null) || return $?
 
@@ -230,12 +243,13 @@ check_if_exists_on_ghcr() {
 	return $?
 }
 
+
 # GHCR image upload
 #
 # Inputs:
 #   FULL_IMAGE_LIST - List of all Docker container images
-#   GITHUB_USER - GitHub user
-#   GITHUB_KEY - GitHub API key
+#   GITHUB_USER     - GitHub user
+#   GITHUB_KEY      - GitHub API key
 #
 # Return:
 #   0 if successful, otherwise error status
@@ -249,6 +263,7 @@ ghcr_upload() {
 			continue
 		fi
 
+		docker login -u $DOCKER_USER || return 1
 		if ! docker pull $docker_image; then
 			prompt error "Encountered an issue pulling $docker_image"
 			return 1
@@ -259,8 +274,7 @@ ghcr_upload() {
 		docker tag $docker_image $ghcr_image
 
 		# login to ghcr
-		# TODO: ignore warning about insecure password, this can be fixed later
-		echo $GITHUB_KEY | docker login ghcr.io -u $GITHUB_USER --password-stdin 2> /dev/null
+		docker login ghcr.io -u $GITHUB_USER || return 1
 
 		# push image to ghcr.io
 		if ! docker push $ghcr_image; then
@@ -274,5 +288,6 @@ ghcr_upload() {
 
 	return 0
 }
+
 
 main $@
