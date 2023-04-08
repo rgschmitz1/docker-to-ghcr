@@ -253,6 +253,8 @@ ghcr_upload() {
 			continue
 		fi
 
+		prompt info "\nSyncing $docker_image to ghcr"
+
 		docker login || return 1
 		if ! docker pull $docker_image; then
 			prompt error "Encountered an issue pulling $docker_image"
