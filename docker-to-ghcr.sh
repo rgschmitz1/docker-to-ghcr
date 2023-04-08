@@ -262,7 +262,7 @@ ghcr_upload() {
 		docker tag $docker_image $ghcr_image
 
 		# login to ghcr
-		docker login ghcr.io -u $GITHUB_USER -p $(pass github/$GITHUB_USER) || return 1
+		echo $(pass github/$GITHUB_USER) | docker login ghcr.io -u $GITHUB_USER --password-stdin || return 1
 
 		# push image to ghcr.io
 		if ! docker push $ghcr_image; then
