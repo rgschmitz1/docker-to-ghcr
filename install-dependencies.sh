@@ -85,6 +85,7 @@ if ! which docker-credential-pass > /dev/null; then
 	echo "Installing docker-credential-pass..."
 	sudo curl -sSL https://github.com/docker/docker-credential-helpers/releases/download/v0.7.0/docker-credential-pass-v0.7.0.linux-$(dpkg --print-architecture) \
 		-o /usr/local/bin/docker-credential-pass || exit $?
+	sudo chmod +x /usr/local/bin/docker-credential-pass || exit $?
 	jq -n '{"credsStore": "pass"}' > ~/.docker/config.json || exit $?
 fi
 

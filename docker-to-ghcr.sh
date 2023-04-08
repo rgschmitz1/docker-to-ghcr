@@ -140,14 +140,14 @@ prompt() {
 verify_pass_setup() {
 	# Check if github/GITHUB_USER is valid
 	if ! pass github/$GITHUB_USER > /dev/null; then
-		prompt info "enter $GITHUB_USER API key"
+		prompt info "Enter ghcr.io $GITHUB_USER API key"
 		pass insert github/$GITHUB_USER
 	fi
 
-	prompt info "enter $GITHUB_USER API key"
+	prompt info "Enter ghcr.io $GITHUB_USER API key"
 	docker login ghcr.io -u $GITHUB_USER
 
-	prompt info "enter $DOCKER_USER API key"
+	prompt info "Enter hub.docker.com $DOCKER_USER API key"
 	docker login -u $DOCKER_USER
 }
 
