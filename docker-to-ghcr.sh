@@ -25,8 +25,6 @@ trap cleanup 2
 #
 # Inputs:
 #   $1 - Docker namespace
-#   $2 - GitHub user
-#   $3 - GitHub API key
 main() {
 	# verify all required arguments are passed on the command line
 	if [ -z "$1" ]; then
@@ -38,12 +36,6 @@ main() {
 	fi
 	DOCKER_NAMESPACE=$1
 
-	if [ -z "$2" ]; then
-		prompt error "GitHub username was not passed"
-		usage 1
-	fi
-	GITHUB_USER=$2
-
 	# build a full image list from docker hub,
 	# cache locally in-case we want to interrupt script
 	FULL_IMAGE_LIST=/tmp/${DOCKER_NAMESPACE}-docker-hub-image-list.txt
@@ -51,7 +43,13 @@ main() {
 	# create temp file to store API JSON output
 	JSON=$(mktemp)
 
-	verify_pass_setup
+	verify_pass_setup || cleanup 1
+
+	# set GITHUB_USER and GITHUB_KEY
+	read -p "Press enter key then input passpharse"
+	local github_info=$(echo ghcr.io | docker-credential-pass get) || cleanup 1
+	GITHUB_USER=$(echo $github_info | jq '.Username')
+	GITHUB_KEY=$(echo $github_info | jq '.Secret')
 
 	if ! get_docker_hub_image_list; then
 		prompt error "Encountered an issue generating container image list for $DOCKER_NAMESPACE"
@@ -74,13 +72,10 @@ main() {
 #   Usage message
 usage() {
 	cat <<-USAGE
-	usage: $(basename $0) <Docker namespace> <GitHub username> <Docker username>
+	usage: $(basename $0) <Docker namespace>
 
 	inputs:
-	  Docker namespace - Source to generate container image list
-	  GitHub username  - GitHub account to push container images
-	  Docker username  - Docker account login name
-                         (to increase rate-limit on pull request)
+	  Docker namespace - Source to pull container images
 	USAGE
 
 	exit $1
@@ -132,13 +127,18 @@ prompt() {
 
 # Check/Initialize pass store
 verify_pass_setup() {
-	# Check if github/GITHUB_USER is valid
-	if ! pass github/$GITHUB_USER > /dev/null; then
-		prompt info "Enter ghcr.io $GITHUB_USER API key"
-		pass insert github/$GITHUB_USER || cleanup 1
+	# Check if ghcr.io docker login is valid
+	if [ "$(docker-credential-pass list | jq -r '."ghcr.io"')" = 'null' ]; then
+		prompt info "Enter ghcr.io username and API key"
+		docker login ghcr.io || return 1
 	fi
 
-	GITHUB_KEY=$(pass github/$GITHUB_USER) || cleanup 1
+	if [ "$(docker-credential-pass list | jq -r '."https://index.docker.io/v1/"')" = 'null' ]; then
+		prompt info "Enter docker.io username and API key"
+		docker login || return 1
+	fi
+
+	return 0
 }
 
 
@@ -266,7 +266,7 @@ ghcr_upload() {
 		docker tag $docker_image $ghcr_image
 
 		# login to ghcr
-		echo $GITHUB_KEY | docker login ghcr.io -u $GITHUB_USER --password-stdin || return 1
+		docker login ghcr.io || return 1
 
 		# push image to ghcr.io
 		if ! docker push $ghcr_image; then

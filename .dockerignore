@@ -1,0 +1,6 @@
+# Ignore everything
+*
+# Allow the following files
+!docker-to-ghcr.sh
+!install-dependencies.sh
+!install-docker.sh
