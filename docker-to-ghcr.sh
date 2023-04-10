@@ -47,8 +47,8 @@ main() {
 
 	# set GITHUB_USER and GITHUB_KEY
 	local github_info=$(echo ghcr.io | docker-credential-pass get) || cleanup 1
-	GITHUB_USER=$(echo $github_info | jq '.Username')
-	GITHUB_KEY=$(echo $github_info | jq '.Secret')
+	GITHUB_USER=$(echo $github_info | jq -r '.Username')
+	GITHUB_KEY=$(echo $github_info | jq -r '.Secret')
 
 	if ! get_docker_hub_image_list; then
 		prompt error "Encountered an issue generating container image list for $DOCKER_NAMESPACE"
