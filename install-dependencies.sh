@@ -1,17 +1,13 @@
 #!/bin/bash
 
-# username and email
-[ -z "$USERNAME" ] && USERNAME='John Doe'
-[ -z "$EMAIL" ] && EMAIL='jdoe@example.com'
-
 # check CPU architecture
 if [ -z "$ARCH" ]; then
 	case $(uname -m) in
 		x86_64)
-			export ARCH='amd64'
+			ARCH='amd64'
 			;;
 		aarch64)
-			export ARCH='arm64'
+			ARCH='arm64'
 			;;
 		*)
 			echo 'Unsupported CPU architecture'
@@ -26,16 +22,32 @@ $(dirname $0)/install-docker.sh || exit $?
 
 
 gpg_setup() {
+	# username and email
+	local username
+	[ -n "$USERNAME" ] && username=$USERNAME
+	while [ -z "$username" ]; do
+		read -rp "Enter a username (e.g. John Doe): " username
+		echo
+	done
+
+	local email
+	[ -n "$EMAIL" ] && email=$EMAIL
+	while [ -z "$email" ]; do
+		read -rp "Enter an email (e.g. jdoe@example.com): " email
+		echo
+	done
+
 	# GPG_TTY needs to be set or the passphrase prompt will not appear in terminal
-	if ! grep -q GPG_TTY ~/.bashrc; then
-		echo 'export GPG_TTY=$(tty)' >> ~/.bashrc
+	if [ ! -f $HOME/.bashrc ] || ! grep -q GPG_TTY $HOME/.bashrc; then
+		echo 'export GPG_TTY=$(tty)' >> $HOME/.bashrc
 		export GPG_TTY=$(tty)
 	fi
 
 	# verify a gpg key has been initialized
-	local key='gpg --list-key "$USERNAME" 2> /dev/null | awk "/^pub/{getline;print}" | xargs'
-	if ! gpg --list-key "$USERNAME" &> /dev/null; then
-		[ -z "$PASSPHRASE" ] && local passphrase || local passphrase=$PASSPHRASE
+	local key='gpg --list-key "$username" 2> /dev/null | awk "/^pub/{getline;print}" | xargs'
+	if ! gpg --list-key "$username" &> /dev/null; then
+		local passphrase
+		[ -n "$PASSPHRASE" ] && passphrase=$PASSPHRASE
 		while [ -z "$passphrase" ]; do
 			read -rsp "Enter a passphrase: " passphrase
 			echo
@@ -44,7 +56,7 @@ gpg_setup() {
 			[ "$passphrase" != "$REPLY" ] && unset passphrase
 		done
 		gpg --batch --passphrase "$passphrase" --quick-gen-key \
-			"$USERNAME <$EMAIL>" rsa4096 default 0 && key=$(eval $key)
+			"$username <$email>" rsa4096 default 0 && key=$(eval $key)
 		if [ -z "$key" ]; then
 			echo "ERROR: gpg key is empty, check setup and try again."
 			exit 1
@@ -53,6 +65,9 @@ gpg_setup() {
 	else
 		key=$(eval $key)
 	fi
+
+	# initialize pass using gpg key
+	pass &> /dev/null && pass init $key > /dev/null || exit 1
 }
 
 
@@ -68,20 +83,20 @@ if ! which gpg > /dev/null; then
 	sudo apt-get update && sudo apt-get install -y gnupg || exit 1
 fi
 
-gpg_setup
-
 if ! which pass > /dev/null; then
 	echo 'Installing pass...'
 	sudo apt-get update && sudo apt-get install -y pass || exit 1
-
-	# initialize pass using gpg key
-	pass init $key
 fi
 
 if ! which docker-credential-pass > /dev/null; then
 	echo "Installing docker-credential-pass..."
-	sudo curl -sSL https://github.com/docker/docker-credential-helpers/releases/download/v0.7.0/docker-credential-pass-v0.7.0.linux-$ARCH \
+	repo='docker/docker-credential-helpers'
+	ver=$(curl -sL https://api.github.com/repos/${repo}/releases/latest | jq -r '.tag_name')
+	curl -sS \
+		https://github.com/${repo}/releases/download/${ver}/docker-credential-pass-${ver}.linux-$ARCH \
 		-o /usr/local/bin/docker-credential-pass || exit $?
 	sudo chmod +x /usr/local/bin/docker-credential-pass || exit $?
-	jq -n '{"credsStore": "pass"}' > ~/.docker/config.json || exit $?
+	jq -n '{"credsStore": "pass"}' > $HOME/.docker/config.json || exit $?
 fi
+
+gpg_setup

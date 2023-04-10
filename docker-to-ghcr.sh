@@ -46,7 +46,6 @@ main() {
 	verify_pass_setup || cleanup 1
 
 	# set GITHUB_USER and GITHUB_KEY
-	read -p "Press enter key then input passpharse"
 	local github_info=$(echo ghcr.io | docker-credential-pass get) || cleanup 1
 	GITHUB_USER=$(echo $github_info | jq '.Username')
 	GITHUB_KEY=$(echo $github_info | jq '.Secret')

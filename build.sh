@@ -13,22 +13,4 @@ case $(uname -m) in
 		;;
 esac
 
-while [ -z "$PASSPHRASE" ]; do
-	read -rsp "Enter a passphrase: " PASSPHRASE
-	echo
-	read -rsp "Re-enter passphrase: "
-	echo
-	[ "$PASSPHRASE" != "$REPLY" ] && unset PASSPHRASE
-done
-
-read -rp "Enter a username (e.g. John Doe): " USERNAME
-echo
-
-read -rp "Enter an email (e.g. jdoe@example.com): " EMAIL
-echo
-
-docker build --tag docker-to-ghcr \
-	--build-arg ARCH=$ARCH \
-	--build-arg PASSPHRASE=$PASSPHRASE \
-	--build-arg USERNAME=$USERNAME \
-	--build-arg EMAIL=$EMAIL .
+docker build --pull --tag docker-to-ghcr --build-arg ARCH=$ARCH .
