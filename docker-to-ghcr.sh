@@ -18,7 +18,7 @@ trap cleanup 2
 
 
 # Install and setup dependencies
-./install-dependencies.sh || exit 1
+$(dirname $0)/install-dependencies.sh || exit 1
 
 
 # Main function
